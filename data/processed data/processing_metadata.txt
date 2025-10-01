@@ -1,1 +1,0 @@
-BudgetWise Advanced Preprocessing Pipeline - Metadata\n============================================================\nprocessing_date: 2025-10-01 13:18:26\noriginal_records: 31736\nfinal_records: 51034\nfeatures_engineered: 18\ndata_quality_score: 95%+\nprocessing_steps: 12\n
