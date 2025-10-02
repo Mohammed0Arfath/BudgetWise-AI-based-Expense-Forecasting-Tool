@@ -62,3 +62,12 @@ htmlcov/
 # Temporary files
 *.tmp
 *.temp
+
+# Include sample data for cloud deployment
+!sample_expense_data.csv
+
+# Include Streamlit config for cloud deployment
+!.streamlit/config.toml
+
+# Include app entry point
+!streamlit_app.py

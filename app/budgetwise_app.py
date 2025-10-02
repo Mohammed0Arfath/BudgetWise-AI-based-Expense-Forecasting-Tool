@@ -72,49 +72,232 @@ class BudgetWiseApp:
         self.load_models()
         
     def setup_paths(self):
-        """Setup file paths"""
-        self.data_path = Path("../data/processed")
-        self.models_path = Path("../models")
+        """Setup file paths with cloud deployment fallbacks"""
+        # Try multiple path configurations for different deployment scenarios
+        possible_data_paths = [
+            Path("../data/processed"),      # Local development from app/ directory
+            Path("data/processed"),         # From root directory
+            Path("./data/processed"),       # Alternative local path
+            Path(".")                       # Root directory fallback
+        ]
+        
+        possible_models_paths = [
+            Path("../models"),              # Local development from app/ directory  
+            Path("models"),                 # From root directory
+            Path("./models")                # Alternative local path
+        ]
+        
+        # Find the first existing data path
+        self.data_path = None
+        for path in possible_data_paths:
+            if path.exists() and (path / "train_data.csv").exists():
+                self.data_path = path
+                break
+        
+        # Find the first existing models path
+        self.models_path = None
+        for path in possible_models_paths:
+            if path.exists():
+                self.models_path = path
+                break
+        
+        # Set fallback paths if none found
+        if self.data_path is None:
+            self.data_path = Path("../data/processed")
+        if self.models_path is None:
+            self.models_path = Path("../models")
+    
+    def create_sample_data(self):
+        """Create sample data for demo purposes when real data isn't available"""
+        # Generate realistic sample expense data
+        import random
+        from datetime import datetime, timedelta
+        
+        start_date = datetime.now() - timedelta(days=365)
+        dates = [start_date + timedelta(days=i) for i in range(365)]
+        
+        sample_data = []
+        categories = ['Food', 'Transportation', 'Entertainment', 'Healthcare', 'Shopping', 'Utilities']
+        merchants = ['Restaurant A', 'Gas Station', 'Cinema', 'Pharmacy', 'Store', 'Electric Company']
+        
+        for i, date in enumerate(dates):
+            category = random.choice(categories)
+            merchant = random.choice(merchants)
+            # Generate realistic amounts based on category
+            base_amounts = {'Food': 25, 'Transportation': 40, 'Entertainment': 50, 
+                          'Healthcare': 100, 'Shopping': 75, 'Utilities': 120}
+            amount = base_amounts[category] + random.uniform(-15, 50)
+            
+            sample_data.append({
+                'date': date,
+                'amount': max(5, amount),  # Ensure positive amounts
+                'merchant': merchant,
+                'category': category,
+                'description': f"{category} expense"
+            })
+        
+        return pd.DataFrame(sample_data)
         
     def load_data(self):
-        """Load processed data"""
+        """Load processed data with fallback for cloud deployment"""
         try:
-            self.train_data = pd.read_csv(self.data_path / "train_data.csv", parse_dates=['date'])
-            self.val_data = pd.read_csv(self.data_path / "val_data.csv", parse_dates=['date'])
-            self.test_data = pd.read_csv(self.data_path / "test_data.csv", parse_dates=['date'])
+            # First try to load the split datasets (train/val/test)
+            if (self.data_path / "train_data.csv").exists():
+                self.train_data = pd.read_csv(self.data_path / "train_data.csv", parse_dates=['date'])
+                self.val_data = pd.read_csv(self.data_path / "val_data.csv", parse_dates=['date'])
+                self.test_data = pd.read_csv(self.data_path / "test_data.csv", parse_dates=['date'])
+                
+                # Combine all data for analysis
+                self.all_data = pd.concat([self.train_data, self.val_data, self.test_data], ignore_index=True)
+                self.all_data = self.all_data.sort_values('date').reset_index(drop=True)
+                return
             
-            # Combine all data for analysis
-            self.all_data = pd.concat([self.train_data, self.val_data, self.test_data], ignore_index=True)
-            self.all_data = self.all_data.sort_values('date').reset_index(drop=True)
+            # Try to load the original dataset or sample data
+            possible_files = [
+                "../budgetwise_finance_dataset.csv",
+                "budgetwise_finance_dataset.csv",
+                "../data/budgetwise_finance_dataset.csv",
+                "data/budgetwise_finance_dataset.csv",
+                "../sample_expense_data.csv",
+                "sample_expense_data.csv"
+            ]
             
-        except FileNotFoundError:
-            st.error("Data files not found. Please ensure data preprocessing is complete.")
-            st.stop()
+            for file_path in possible_files:
+                try:
+                    self.all_data = pd.read_csv(file_path, parse_dates=['date'])
+                    self.all_data = self.all_data.sort_values('date').reset_index(drop=True)
+                    
+                    # Create train/val/test splits for compatibility
+                    total_len = len(self.all_data)
+                    train_end = int(total_len * 0.7)
+                    val_end = int(total_len * 0.85)
+                    
+                    self.train_data = self.all_data[:train_end].copy()
+                    self.val_data = self.all_data[train_end:val_end].copy()
+                    self.test_data = self.all_data[val_end:].copy()
+                    
+                    st.info("📊 Loaded original dataset. Functionality may be limited without preprocessed data.")
+                    return
+                except:
+                    continue
+            
+            # If no data files found, create sample data
+            st.warning("⚠️ No data files found. Using sample data for demonstration.")
+            st.info("💡 **For full functionality**: Ensure `budgetwise_finance_dataset.csv` is in the repository root or run data preprocessing locally.")
+            
+            self.all_data = self.create_sample_data()
+            
+            # Create train/val/test splits for compatibility
+            total_len = len(self.all_data)
+            train_end = int(total_len * 0.7)
+            val_end = int(total_len * 0.85)
+            
+            self.train_data = self.all_data[:train_end].copy()
+            self.val_data = self.all_data[train_end:val_end].copy()
+            self.test_data = self.all_data[val_end:].copy()
+            
+        except Exception as e:
+            st.error(f"Error loading data: {e}")
+            st.info("🔧 **Troubleshooting**: Check that data files exist and are accessible.")
+            # Create minimal sample data as final fallback
+            self.all_data = self.create_sample_data()
+            self.train_data = self.all_data.copy()
+            self.val_data = pd.DataFrame()
+            self.test_data = pd.DataFrame()
+    
+    def create_sample_model_results(self):
+        """Create sample model results for demo when real results aren't available"""
+        # Create realistic sample results based on actual performance
+        baseline_results = pd.DataFrame({
+            'MAE': [682726, 1245892, 1567234],
+            'MAPE': [521.26, 952.48, 1200.15],
+            'R2': [-4.21, -8.52, -11.00]
+        }, index=['ARIMA', 'Prophet', 'Linear Regression'])
+        
+        ml_results = pd.DataFrame({
+            'MAE': [27137, 29847, 35621],
+            'MAPE': [14.53, 15.89, 18.94],
+            'R2': [0.85, 0.84, 0.81]
+        }, index=['XGBoost', 'Random Forest', 'Decision Tree'])
+        
+        dl_results = pd.DataFrame({
+            'MAE': [158945, 162334, 171823],
+            'MAPE': [128.67, 131.21, 139.56],
+            'R2': [0.27, 0.25, 0.21]
+        }, index=['LSTM', 'GRU', 'CNN-1D'])
+        
+        transformer_results = pd.DataFrame({
+            'MAE': [158409],
+            'MAPE': [127.11],
+            'R2': [0.28]
+        }, index=['N-BEATS'])
+        
+        return {
+            'Baseline': baseline_results,
+            'Machine Learning': ml_results,
+            'Deep Learning': dl_results,
+            'Transformer': transformer_results
+        }
     
     def load_models(self):
-        """Load trained models and results"""
+        """Load trained models and results with fallback for cloud deployment"""
         self.model_results = {}
+        loaded_categories = 0
+        total_categories = 4
         
-        # Load model results
-        try:
-            # Baseline results
-            baseline_df = pd.read_csv(self.models_path / "baseline" / "baseline_results.csv", index_col=0)
-            self.model_results['Baseline'] = baseline_df
+        # Define model result paths
+        result_paths = {
+            'Baseline': 'baseline/baseline_results.csv',
+            'Machine Learning': 'ml/ml_results.csv', 
+            'Deep Learning': 'deep_learning/dl_results.csv',
+            'Transformer': 'transformer/transformer_results.csv'
+        }
+        
+        # Try to load model results
+        for category, file_path in result_paths.items():
+            loaded = False
+            # Try multiple possible paths
+            possible_paths = []
             
-            # ML results  
-            ml_df = pd.read_csv(self.models_path / "ml" / "ml_results.csv", index_col=0)
-            self.model_results['Machine Learning'] = ml_df
+            # Add models_path if it exists
+            if self.models_path is not None:
+                possible_paths.append(self.models_path / file_path)
             
-            # Deep Learning results
-            dl_df = pd.read_csv(self.models_path / "deep_learning" / "dl_results.csv", index_col=0)
-            self.model_results['Deep Learning'] = dl_df
+            # Add other possible paths
+            possible_paths.extend([
+                Path("../models") / file_path,
+                Path("models") / file_path,
+                Path("./models") / file_path
+            ])
             
-            # Transformer results
-            transformer_df = pd.read_csv(self.models_path / "transformer" / "transformer_results.csv", index_col=0)
-            self.model_results['Transformer'] = transformer_df
+            for path in possible_paths:
+                try:
+                    if path.exists():
+                        self.model_results[category] = pd.read_csv(path, index_col=0)
+                        loaded = True
+                        loaded_categories += 1
+                        break
+                except:
+                    continue
             
-        except FileNotFoundError as e:
-            st.warning(f"Some model results not found: {e}")
+            if not loaded:
+                # Use sample results if real ones not found
+                sample_results = self.create_sample_model_results()
+                if category in sample_results:
+                    self.model_results[category] = sample_results[category]
+        
+        # If no real model results found, use all sample results
+        if loaded_categories == 0:
+            st.warning("⚠️ No trained model results found. Using sample results for demonstration.")
+            st.info("💡 **For full functionality**: Train models locally using the provided scripts in `/scripts/` directory.")
+            self.model_results = self.create_sample_model_results()
+        elif loaded_categories < total_categories:
+            st.info(f"ℹ️ Loaded {loaded_categories}/{total_categories} model result files. Using sample data for missing results.")
+            # Fill in missing categories with sample data
+            sample_results = self.create_sample_model_results()
+            for category, results in sample_results.items():
+                if category not in self.model_results:
+                    self.model_results[category] = results
     
     def create_main_dashboard(self):
         """Create the main dashboard"""
