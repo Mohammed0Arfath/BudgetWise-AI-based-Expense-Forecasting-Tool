@@ -45,27 +45,6 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
-# Data files (if sensitive)
-data/raw/*.csv
-data/external/*.csv
-!data/raw/.gitkeep
-!data/external/.gitkeep
-
-# Model artifacts
-models/trained/*.pkl
-models/trained/*.joblib
-models/trained/*.h5
-models/trained/*.pt
-models/trained/*.pth
-!models/trained/.gitkeep
-
-# Logs and reports
-logs/
-*.log
-reports/figures/*.png
-reports/figures/*.jpg
-reports/figures/*.pdf
-!reports/figures/.gitkeep
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
