@@ -1,12 +1,19 @@
+#!/usr/bin/env python3
 """
 BudgetWise AI - Personal Expense Forecasting Dashboard
-Week 8: Complete Streamlit Application
+Copyright (c) 2025 Mohammed Arfath
+Original Repository: https://github.com/Mohammed0Arfath/BudgetWise-AI-based-Expense-Forecasting-Tool
 
+This file is part of BudgetWise AI project - Personal Expense Forecasting Tool.
+Licensed under MIT License with Attribution Requirement.
+
+Week 8: Complete Streamlit Application
 A comprehensive AI-powered expense forecasting system with interactive dashboard,
 model comparison, predictions, and insights.
 
-Author: BudgetWise AI Team
-Date: October 2025
+Author: Mohammed Arfath
+Created: October 2025
+Project Signature: BW-AI-MA-2025-v1.0
 """
 
 import streamlit as st
@@ -21,6 +28,20 @@ import pickle
 import joblib
 from pathlib import Path
 from datetime import datetime, timedelta
+import sys
+import os
+
+# Add src directory to path for auth_signature import
+sys.path.append(str(Path(__file__).parent.parent / 'src'))
+try:
+    from auth_signature import verify_authenticity, create_copyright_notice, PROJECT_SIGNATURE
+except ImportError:
+    # Fallback if auth_signature is not available
+    def verify_authenticity():
+        return {'is_authentic': True, 'author': 'Mohammed Arfath'}
+    def create_copyright_notice():
+        return "© 2025 Mohammed Arfath - BudgetWise AI"
+    PROJECT_SIGNATURE = "BW-AI-MA-2025-v1.0"
 import warnings
 warnings.filterwarnings('ignore')
 

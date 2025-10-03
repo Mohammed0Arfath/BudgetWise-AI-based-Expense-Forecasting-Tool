@@ -3,10 +3,12 @@
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)](https://streamlit.io/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-2.0+-orange.svg)](https://xgboost.readthedocs.io/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT_with_Attribution-green.svg)](LICENSE)
+[![Copyright](https://img.shields.io/badge/Copyright-2025_Mohammed_Arfath-blue.svg)](CONTRIBUTORS.md)
 
 An advanced AI-powered personal expense forecasting system that leverages cutting-edge machine learning and deep learning techniques to predict future spending patterns with **99.9% accuracy** (R² = 0.999). Features a comprehensive Streamlit web application with interactive dashboards, model comparisons, and AI-driven financial insights.
 
+> **© 2025 Mohammed Arfath** | Original Repository | [Copyright Protected](SECURITY.md)  
 > 📁 **Project Structure**: See [DIRECTORY_STRUCTURE.md](DIRECTORY_STRUCTURE.md) for complete organization guide
 
 ## 🌟 Key Highlights

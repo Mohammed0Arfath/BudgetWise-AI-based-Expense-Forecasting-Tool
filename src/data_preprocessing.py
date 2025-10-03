@@ -1,7 +1,19 @@
+#!/usr/bin/env python3
 """
+BudgetWise AI - Advanced Data Preprocessing Module
+Copyright (c) 2025 Mohammed Arfath
+Original Repository: https://github.com/Mohammed0Arfath/BudgetWise-AI-based-Expense-Forecasting-Tool
+
+This file is part of BudgetWise AI project - Personal Expense Forecasting Tool.
+Licensed under MIT License with Attribution Requirement.
+
 Advanced Data Preprocessing Module for BudgetWise Forecasting System
 Implements comprehensive data loading, cleaning, merging, and validation based on notebook analysis.
 Handles multiple datasets with intelligent duplicate resolution, data quality improvement, and standardization.
+
+Author: Mohammed Arfath
+Created: October 2025
+Project: BudgetWise AI - Personal Expense Forecasting Tool
 """
 
 import pandas as pd

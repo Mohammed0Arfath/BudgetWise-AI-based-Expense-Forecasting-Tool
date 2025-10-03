@@ -1,6 +1,16 @@
+#!/usr/bin/env python3
 """
 BudgetWise AI - Application Launcher
+Copyright (c) 2025 Mohammed Arfath
+Original Repository: https://github.com/Mohammed0Arfath/BudgetWise-AI-based-Expense-Forecasting-Tool
+
+This file is part of BudgetWise AI project - Personal Expense Forecasting Tool.
+Licensed under MIT License with Attribution Requirement.
+
 Simple script to launch the BudgetWise AI Streamlit application
+
+Author: Mohammed Arfath
+Created: October 2025
 """
 
 import subprocess
