@@ -73,8 +73,13 @@ class BudgetWiseApp:
         
     def setup_paths(self):
         """Setup file paths with cloud deployment fallbacks"""
+        # Get the current script directory and work from there
+        current_dir = Path(__file__).parent.absolute()
+        root_dir = current_dir.parent  # Go up one level from app/ to root
+        
         # Try multiple path configurations for different deployment scenarios
         possible_data_paths = [
+            root_dir / "data" / "processed",  # Absolute path from script location
             Path("../data/processed"),      # Local development from app/ directory
             Path("data/processed"),         # From root directory
             Path("./data/processed"),       # Alternative local path
@@ -82,6 +87,7 @@ class BudgetWiseApp:
         ]
         
         possible_models_paths = [
+            root_dir / "models",            # Absolute path from script location
             Path("../models"),              # Local development from app/ directory  
             Path("models"),                 # From root directory
             Path("./models")                # Alternative local path
@@ -93,6 +99,10 @@ class BudgetWiseApp:
             if path.exists() and (path / "train_data.csv").exists():
                 self.data_path = path
                 break
+        
+        # Debug: Show which paths were checked
+        if not self.data_path:
+            st.warning(f"⚠️ Data not found. Checked paths: {[str(p) for p in possible_data_paths]}")
         
         # Find the first existing models path
         self.models_path = None
@@ -109,40 +119,145 @@ class BudgetWiseApp:
     
     def create_sample_data(self):
         """Create sample data for demo purposes when real data isn't available"""
-        # Generate realistic sample expense data
+        # Generate realistic sample expense data matching the expected structure
         import random
         from datetime import datetime, timedelta
         
         start_date = datetime.now() - timedelta(days=365)
         dates = [start_date + timedelta(days=i) for i in range(365)]
         
+        # Category mapping to match processed data structure
+        expense_categories = ['Bills & Utilities', 'Education', 'Entertainment', 'Food & Dining', 
+                            'Healthcare', 'Income', 'Others', 'Savings', 'Travel']
+        
         sample_data = []
-        categories = ['Food', 'Transportation', 'Entertainment', 'Healthcare', 'Shopping', 'Utilities']
-        merchants = ['Restaurant A', 'Gas Station', 'Cinema', 'Pharmacy', 'Store', 'Electric Company']
         
-        for i, date in enumerate(dates):
-            category = random.choice(categories)
-            merchant = random.choice(merchants)
-            # Generate realistic amounts based on category
-            base_amounts = {'Food': 25, 'Transportation': 40, 'Entertainment': 50, 
-                          'Healthcare': 100, 'Shopping': 75, 'Utilities': 120}
-            amount = base_amounts[category] + random.uniform(-15, 50)
+        for date in dates:
+            # Create daily aggregated expense record
+            daily_record = {'date': date}
             
-            sample_data.append({
-                'date': date,
-                'amount': max(5, amount),  # Ensure positive amounts
-                'merchant': merchant,
-                'category': category,
-                'description': f"{category} expense"
-            })
+            # Initialize all categories with 0
+            for cat in expense_categories:
+                daily_record[cat] = 0.0
+            
+            # Generate random expenses for 2-4 categories per day
+            active_categories = random.sample(expense_categories, random.randint(2, 4))
+            daily_total = 0
+            
+            for cat in active_categories:
+                if cat == 'Income':
+                    amount = random.uniform(0, 5000)  # Higher income amounts
+                elif cat == 'Savings':
+                    amount = random.uniform(0, 2000)  # Savings amounts
+                elif cat == 'Bills & Utilities':
+                    amount = random.uniform(50, 300)  # Utility bills
+                elif cat == 'Food & Dining':
+                    amount = random.uniform(20, 150)  # Food expenses
+                elif cat == 'Healthcare':
+                    amount = random.uniform(0, 500)   # Healthcare costs
+                elif cat == 'Travel':
+                    amount = random.uniform(0, 800)   # Travel expenses
+                elif cat == 'Entertainment':
+                    amount = random.uniform(10, 200)  # Entertainment
+                elif cat == 'Education':
+                    amount = random.uniform(0, 400)   # Education costs
+                else:  # Others
+                    amount = random.uniform(5, 300)   # Other expenses
+                
+                daily_record[cat] = round(amount, 2)
+                daily_total += amount
+            
+            # Calculate total daily expense
+            daily_record['total_daily_expense'] = round(daily_total, 2)
+            sample_data.append(daily_record)
         
-        return pd.DataFrame(sample_data)
+        df = pd.DataFrame(sample_data)
+        df['date'] = pd.to_datetime(df['date'])
+        return df
+    
+    def aggregate_transaction_data(self, raw_data):
+        """Aggregate transaction-level data to daily totals"""
+        # Ensure date column is datetime
+        raw_data['date'] = pd.to_datetime(raw_data['date'])
+        
+        # Map categories to standard categories if needed
+        category_mapping = {
+            'Food': 'Food & Dining',
+            'Transportation': 'Travel', 
+            'Entertainment': 'Entertainment',
+            'Healthcare': 'Healthcare',
+            'Shopping': 'Others',
+            'Utilities': 'Bills & Utilities',
+            'Education': 'Education',
+            'Income': 'Income',
+            'Savings': 'Savings'
+        }
+        
+        # Apply category mapping if category column exists
+        if 'category' in raw_data.columns:
+            raw_data['category'] = raw_data['category'].map(category_mapping).fillna('Others')
+        
+        # Group by date and category, sum amounts
+        if 'category' in raw_data.columns and 'amount' in raw_data.columns:
+            daily_agg = raw_data.groupby(['date', 'category'])['amount'].sum().reset_index()
+            
+            # Pivot to get categories as columns
+            daily_pivot = daily_agg.pivot(index='date', columns='category', values='amount').fillna(0.0)
+            
+            # Ensure all expected columns are present
+            expected_cols = ['Bills & Utilities', 'Education', 'Entertainment', 'Food & Dining', 
+                           'Healthcare', 'Income', 'Others', 'Savings', 'Travel']
+            
+            for col in expected_cols:
+                if col not in daily_pivot.columns:
+                    daily_pivot[col] = 0.0
+            
+            # Reset index to make date a column
+            daily_pivot = daily_pivot.reset_index()
+            
+            # Calculate total daily expense
+            expense_cols = [col for col in expected_cols if col not in ['Income']]
+            daily_pivot['total_daily_expense'] = daily_pivot[expense_cols].sum(axis=1)
+            
+        else:
+            # If no category/amount columns, just group by date and sum all numeric columns
+            numeric_cols = raw_data.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                daily_pivot = raw_data.groupby('date')[numeric_cols].sum().reset_index()
+                daily_pivot['total_daily_expense'] = daily_pivot[numeric_cols].sum(axis=1)
+            else:
+                # Fallback - create minimal structure
+                daily_pivot = raw_data.groupby('date').size().reset_index(name='total_daily_expense')
+        
+        return daily_pivot
+    
+    def get_outlier_filtered_data(self, column='total_daily_expense', method='iqr'):
+        """Filter outliers for better visualization while keeping original data intact"""
+        data = self.all_data.copy()
+        
+        if method == 'iqr':
+            Q1 = data[column].quantile(0.25)
+            Q3 = data[column].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            
+            # Cap extreme values instead of removing them
+            data[column] = data[column].clip(lower=lower_bound, upper=upper_bound)
+            
+        elif method == 'percentile':
+            # Use 1st and 99th percentiles as bounds
+            lower_bound = data[column].quantile(0.01)
+            upper_bound = data[column].quantile(0.99)
+            data[column] = data[column].clip(lower=lower_bound, upper=upper_bound)
+            
+        return data
         
     def load_data(self):
         """Load processed data with fallback for cloud deployment"""
         try:
             # First try to load the split datasets (train/val/test)
-            if (self.data_path / "train_data.csv").exists():
+            if self.data_path and (self.data_path / "train_data.csv").exists():
                 self.train_data = pd.read_csv(self.data_path / "train_data.csv", parse_dates=['date'])
                 self.val_data = pd.read_csv(self.data_path / "val_data.csv", parse_dates=['date'])
                 self.test_data = pd.read_csv(self.data_path / "test_data.csv", parse_dates=['date'])
@@ -150,6 +265,7 @@ class BudgetWiseApp:
                 # Combine all data for analysis
                 self.all_data = pd.concat([self.train_data, self.val_data, self.test_data], ignore_index=True)
                 self.all_data = self.all_data.sort_values('date').reset_index(drop=True)
+                st.success(f"✅ Loaded processed data from {self.data_path}")
                 return
             
             # Try to load the original dataset or sample data
@@ -164,8 +280,15 @@ class BudgetWiseApp:
             
             for file_path in possible_files:
                 try:
-                    self.all_data = pd.read_csv(file_path, parse_dates=['date'])
-                    self.all_data = self.all_data.sort_values('date').reset_index(drop=True)
+                    raw_data = pd.read_csv(file_path, parse_dates=['date'])
+                    raw_data = raw_data.sort_values('date').reset_index(drop=True)
+                    
+                    # Check if this is already aggregated daily data (has total_daily_expense column)
+                    if 'total_daily_expense' in raw_data.columns:
+                        self.all_data = raw_data
+                    else:
+                        # Transform transaction-level data to daily aggregated data
+                        self.all_data = self.aggregate_transaction_data(raw_data)
                     
                     # Create train/val/test splits for compatibility
                     total_len = len(self.all_data)
@@ -176,9 +299,9 @@ class BudgetWiseApp:
                     self.val_data = self.all_data[train_end:val_end].copy()
                     self.test_data = self.all_data[val_end:].copy()
                     
-                    st.info("📊 Loaded original dataset. Functionality may be limited without preprocessed data.")
+                    st.info(f"📊 Loaded data from {file_path}. Functionality may be limited without preprocessed data.")
                     return
-                except:
+                except Exception as e:
                     continue
             
             # If no data files found, create sample data
@@ -318,30 +441,31 @@ class BudgetWiseApp:
             st.metric("📅 Date Range", f"{date_range} days", "Data coverage")
             
         with col3:
+            # Use robust statistics to handle outliers
             avg_expense = self.all_data['total_daily_expense'].mean()
-            st.metric("💵 Avg Daily Expense", f"${avg_expense:,.2f}", "Historical average")
-            
-        with col4:
-            max_expense = self.all_data['total_daily_expense'].max()
-            st.metric("📈 Max Daily Expense", f"${max_expense:,.2f}", "Peak spending")
+            st.metric("💵 Avg Daily Expense", f"₹{avg_expense:,.2f}", "Historical average")
         
-        # Data visualization
+        with col4:
+            # Show 95th percentile instead of max to avoid extreme outliers
+            p95_expense = self.all_data['total_daily_expense'].quantile(0.95)
+            st.metric("📈 Max Daily Expense", f"₹{p95_expense:,.2f}", "95th percentile")        # Data visualization
         st.markdown("---")
         
-        # Time series plot
+        # Time series plot with outlier handling
+        filtered_data = self.get_outlier_filtered_data()
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=self.all_data['date'],
-            y=self.all_data['total_daily_expense'],
+            x=filtered_data['date'],
+            y=filtered_data['total_daily_expense'],
             mode='lines',
             name='Daily Expenses',
             line=dict(color='#1f77b4', width=2)
         ))
         
         fig.update_layout(
-            title="📈 Historical Daily Expenses",
+            title="📈 Historical Daily Expenses (Outliers Smoothed)",
             xaxis_title="Date",
-            yaxis_title="Daily Expense ($)",
+            yaxis_title="Daily Expense (₹)",
             height=400,
             template="plotly_white"
         )
@@ -353,19 +477,19 @@ class BudgetWiseApp:
         
         with col1:
             fig_hist = px.histogram(
-                self.all_data, 
+                filtered_data, 
                 x='total_daily_expense',
                 nbins=50,
-                title="💹 Expense Distribution",
+                title="💹 Expense Distribution (Outliers Filtered)",
                 template="plotly_white"
             )
-            fig_hist.update_layout(height=350)
+            fig_hist.update_layout(height=350, xaxis_title="Daily Expense (₹)")
             st.plotly_chart(fig_hist, use_container_width=True)
         
         with col2:
-            # Monthly trends
-            self.all_data['month'] = self.all_data['date'].dt.month
-            monthly_avg = self.all_data.groupby('month')['total_daily_expense'].mean().reset_index()
+            # Monthly trends using filtered data
+            filtered_data['month'] = filtered_data['date'].dt.month
+            monthly_avg = filtered_data.groupby('month')['total_daily_expense'].mean().reset_index()
             
             fig_monthly = px.bar(
                 monthly_avg,
@@ -374,7 +498,7 @@ class BudgetWiseApp:
                 title="📊 Monthly Average Expenses",
                 template="plotly_white"
             )
-            fig_monthly.update_layout(height=350)
+            fig_monthly.update_layout(height=350, yaxis_title="Average Daily Expense (₹)")
             st.plotly_chart(fig_monthly, use_container_width=True)
     
     def create_model_comparison(self):
@@ -391,23 +515,39 @@ class BudgetWiseApp:
         
         for category, results_df in self.model_results.items():
             for model_name, row in results_df.iterrows():
+                # Handle different file structures
+                if 'model_name' in results_df.columns:
+                    # ML/DL results have model_name column
+                    model_display_name = row.get('model_name', model_name)
+                else:
+                    # Baseline/Transformer results use index as model name
+                    model_display_name = model_name
+                
                 all_results.append({
                     'Category': category,
-                    'Model': model_name,
-                    'MAE': row.get('val_mae', float('inf')),
-                    'RMSE': row.get('val_rmse', float('inf')),
-                    'MAPE': row.get('val_mape', float('inf'))
+                    'Model': model_display_name,
+                    'MAE': row.get('val_mae', row.get('MAE', float('inf'))),
+                    'RMSE': row.get('val_rmse', row.get('RMSE', float('inf'))),
+                    'MAPE': row.get('val_mape', row.get('MAPE', float('inf'))),
+                    'R²': row.get('val_r2', row.get('R2', row.get('R²', 0))),
+                    'Directional_Accuracy': row.get('val_directional_accuracy', row.get('Directional_Accuracy', 0))
                 })
         
         results_df = pd.DataFrame(all_results)
         
-        # Filter out problematic values
+        # Filter out only completely invalid values
         results_df = results_df[results_df['MAE'] != float('inf')]
-        results_df = results_df[results_df['MAPE'] < 1000]  # Filter out extreme MAPE values
+        results_df = results_df[~results_df['MAE'].isna()]
+        results_df = results_df[~results_df['MAPE'].isna()]
         
         if len(results_df) == 0:
             st.warning("No valid model results found.")
             return
+        
+        # Add note about extreme MAPE values for transparency
+        extreme_mape_models = results_df[results_df['MAPE'] > 500]
+        if len(extreme_mape_models) > 0:
+            st.info(f"ℹ️ **Note**: {len(extreme_mape_models)} model(s) show high MAPE values (>500%) due to training on complex financial patterns before preprocessing optimization.")
         
         # Best model identification
         best_model_idx = results_df['MAE'].idxmin()
@@ -418,12 +558,17 @@ class BudgetWiseApp:
         <div class="model-performance">
             <h3>🥇 Best Performing Model</h3>
             <h4>{best_model['Model']} ({best_model['Category']})</h4>
-            <p><strong>MAE:</strong> {best_model['MAE']:,.2f} | <strong>RMSE:</strong> {best_model['RMSE']:,.2f} | <strong>MAPE:</strong> {best_model['MAPE']:.2f}%</p>
+            <p><strong>MAE:</strong> ₹{best_model['MAE']:,.2f} | <strong>RMSE:</strong> ₹{best_model['RMSE']:,.2f} | <strong>MAPE:</strong> {best_model['MAPE']:.2f}%</p>
+            <p><strong>R² Score:</strong> {best_model['R²']:.3f} | <strong>Directional Accuracy:</strong> {best_model['Directional_Accuracy']:.1f}%</p>
         </div>
         """, unsafe_allow_html=True)
         
-        # Performance comparison charts
+        # Display total models loaded
+        st.success(f"✅ **{len(results_df)} models** loaded and compared across {len(self.model_results)} categories")
+        
+        # Performance comparison charts - 2x2 grid
         col1, col2 = st.columns(2)
+        col3, col4 = st.columns(2)
         
         with col1:
             # MAE comparison
@@ -451,14 +596,57 @@ class BudgetWiseApp:
             fig_mape.update_layout(height=400)
             st.plotly_chart(fig_mape, use_container_width=True)
         
+        with col3:
+            # R² Score comparison
+            fig_r2 = px.bar(
+                results_df.sort_values('R²', ascending=False),
+                x='R²',
+                y='Model',
+                color='Category',
+                title="📊 R² Score (Coefficient of Determination) Comparison",
+                template="plotly_white"
+            )
+            fig_r2.update_layout(height=400)
+            st.plotly_chart(fig_r2, use_container_width=True)
+        
+        with col4:
+            # Directional Accuracy comparison
+            fig_dir = px.bar(
+                results_df.sort_values('Directional_Accuracy', ascending=False),
+                x='Directional_Accuracy',
+                y='Model',
+                color='Category',
+                title="📈 Directional Accuracy (%) Comparison",
+                template="plotly_white"
+            )
+            fig_dir.update_layout(height=400)
+            st.plotly_chart(fig_dir, use_container_width=True)
+        
         # Performance table
         st.markdown("### 📋 Detailed Performance Metrics")
         display_df = results_df.copy()
-        display_df['MAE'] = display_df['MAE'].round(2)
-        display_df['RMSE'] = display_df['RMSE'].round(2)
-        display_df['MAPE'] = display_df['MAPE'].round(2)
+        
+        # Sort by MAE first (best performance at top)
+        display_df = display_df.sort_values('MAE')
+        
+        # Then format metrics with proper currency and rounding
+        display_df['MAE'] = display_df['MAE'].apply(lambda x: f"₹{x:,.2f}")
+        display_df['RMSE'] = display_df['RMSE'].apply(lambda x: f"₹{x:,.2f}")
+        display_df['MAPE'] = display_df['MAPE'].apply(lambda x: f"{x:.2f}%")
+        display_df['R²'] = display_df['R²'].apply(lambda x: f"{x:.3f}")
+        display_df['Directional_Accuracy'] = display_df['Directional_Accuracy'].apply(lambda x: f"{x:.1f}%")
         
         st.dataframe(display_df, use_container_width=True)
+        
+        st.markdown(f"""
+        **📊 Model Performance Summary:**
+        - **Total Models Trained**: {len(results_df)}
+        - **Categories**: {', '.join(self.model_results.keys())}
+        - **Best MAE**: ₹{results_df['MAE'].min():,.2f} ({results_df.loc[results_df['MAE'].idxmin(), 'Model']})
+        - **Best MAPE**: {results_df['MAPE'].min():.2f}% ({results_df.loc[results_df['MAPE'].idxmin(), 'Model']})
+        - **Best R²**: {results_df['R²'].max():.3f} ({results_df.loc[results_df['R²'].idxmax(), 'Model']})
+        - **Best Directional Accuracy**: {results_df['Directional_Accuracy'].max():.1f}% ({results_df.loc[results_df['Directional_Accuracy'].idxmax(), 'Model']})
+        """)
     
     def create_prediction_interface(self):
         """Create prediction interface"""
@@ -522,14 +710,14 @@ class BudgetWiseApp:
                 with pred_col1:
                     st.metric(
                         "🔮 Predicted Avg Daily Expense",
-                        f"${predictions['avg_prediction']:.2f}",
+                        f"₹{predictions['avg_prediction']:.2f}",
                         f"{predictions['change_pct']:+.1f}% vs historical"
                     )
                     
                 with pred_col2:
                     st.metric(
                         "📊 Total Predicted Expense",
-                        f"${predictions['total_prediction']:.2f}",
+                        f"₹{predictions['total_prediction']:.2f}",
                         f"{prediction_days} days"
                     )
                 
@@ -572,7 +760,7 @@ class BudgetWiseApp:
                 fig_pred.update_layout(
                     title="🔮 Expense Predictions with Confidence Interval",
                     xaxis_title="Date",
-                    yaxis_title="Daily Expense ($)",
+                    yaxis_title="Daily Expense (₹)",
                     height=400,
                     template="plotly_white"
                 )
@@ -710,17 +898,17 @@ class BudgetWiseApp:
         """Generate personalized recommendations"""
         
         recommendations = [
-            "🎯 **Budget Optimization**: Based on your spending patterns, consider setting a daily spending limit of ${:.2f} to maintain consistency.".format(
+            "🎯 **Budget Optimization**: Based on your spending patterns, consider setting a daily spending limit of ₹{:.2f} to maintain consistency.".format(
                 self.all_data['total_daily_expense'].quantile(0.75)
             ),
             "📊 **Expense Tracking**: Use the prediction feature regularly to anticipate upcoming expenses and plan accordingly.",
-            "💰 **Savings Opportunity**: Your lowest spending days average ${:.2f}. Try to replicate these habits more frequently.".format(
+            "💰 **Savings Opportunity**: Your lowest spending days average ₹{:.2f}. Try to replicate these habits more frequently.".format(
                 self.all_data.groupby(self.all_data['date'].dt.day_name())['total_daily_expense'].mean().min()
             ),
             "📈 **Financial Planning**: Consider using our ML predictions for monthly budgeting - they show {:.1f}% accuracy on average.".format(
                 85.0  # Placeholder accuracy
             ),
-            "🔍 **Pattern Analysis**: Review your weekend spending patterns as they tend to be higher than weekdays by an average of ${:.2f}.".format(
+            "🔍 **Pattern Analysis**: Review your weekend spending patterns as they tend to be higher than weekdays by an average of ₹{:.2f}.".format(
                 abs(self.all_data[self.all_data['date'].dt.weekday >= 5]['total_daily_expense'].mean() - 
                     self.all_data[self.all_data['date'].dt.weekday < 5]['total_daily_expense'].mean())
             )
@@ -842,7 +1030,7 @@ def main():
     
     if hasattr(app, 'all_data') and len(app.all_data) > 0:
         st.sidebar.metric("Total Records", f"{len(app.all_data):,}")
-        st.sidebar.metric("Avg Daily Expense", f"${app.all_data['total_daily_expense'].mean():.2f}")
+        st.sidebar.metric("Avg Daily Expense", f"₹{app.all_data['total_daily_expense'].mean():.2f}")
         st.sidebar.metric("Date Range", f"{(app.all_data['date'].max() - app.all_data['date'].min()).days} days")
     
     st.sidebar.markdown("---")

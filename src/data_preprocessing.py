@@ -440,6 +440,60 @@ class AdvancedDataPreprocessor:
         logger.info(f"      • Successful conversions: {conversion_success:,} ({conversion_rate:.1f}%)")
         logger.info(f"      • Failed conversions: {conversion_failures:,} ({(conversion_failures/len(df)*100):.1f}%)")
         
+        # CRITICAL FIX: Cap unrealistic transaction amounts
+        logger.info(f"\n🎯 Step 2.5: Realistic Transaction Amount Capping")
+        valid_amounts = df["amount"].dropna()
+        
+        if len(valid_amounts) > 0:
+            # Define realistic transaction limits for personal expenses
+            MAX_REALISTIC_TRANSACTION = 100000  # ₹1 lakh maximum per transaction
+            MIN_REALISTIC_TRANSACTION = 1       # ₹1 minimum per transaction
+            
+            # Analyze extreme amounts before capping
+            extreme_high = (valid_amounts > MAX_REALISTIC_TRANSACTION).sum()
+            extreme_low = (valid_amounts < MIN_REALISTIC_TRANSACTION).sum()
+            extreme_high_max = valid_amounts[valid_amounts > MAX_REALISTIC_TRANSACTION].max() if extreme_high > 0 else 0
+            
+            logger.info(f"   📊 Transaction amount analysis:")
+            logger.info(f"      • Valid transactions: {len(valid_amounts):,}")
+            logger.info(f"      • Unrealistically high (>₹{MAX_REALISTIC_TRANSACTION:,}): {extreme_high:,}")
+            logger.info(f"      • Unrealistically low (<₹{MIN_REALISTIC_TRANSACTION:,}): {extreme_low:,}")
+            if extreme_high > 0:
+                logger.info(f"      • Highest unrealistic amount: ₹{extreme_high_max:,.2f}")
+            
+            # Cap extreme amounts to realistic levels
+            original_amounts = df["amount"].copy()
+            df.loc[df["amount"] > MAX_REALISTIC_TRANSACTION, "amount"] = MAX_REALISTIC_TRANSACTION
+            df.loc[(df["amount"] > 0) & (df["amount"] < MIN_REALISTIC_TRANSACTION), "amount"] = MIN_REALISTIC_TRANSACTION
+            
+            # Count and report capping actions
+            capped_high = (original_amounts > MAX_REALISTIC_TRANSACTION).sum()
+            capped_low = ((original_amounts > 0) & (original_amounts < MIN_REALISTIC_TRANSACTION)).sum()
+            total_capped = capped_high + capped_low
+            
+            # Add capping flags for transparency
+            df["amount_capped_high"] = (original_amounts > MAX_REALISTIC_TRANSACTION).astype(int)
+            df["amount_capped_low"] = ((original_amounts > 0) & (original_amounts < MIN_REALISTIC_TRANSACTION)).astype(int)
+            df["amount_capped"] = (df["amount_capped_high"] | df["amount_capped_low"]).astype(int)
+            
+            logger.info(f"   ✅ Transaction capping results:")
+            logger.info(f"      • High amounts capped to ₹{MAX_REALISTIC_TRANSACTION:,}: {capped_high:,}")
+            logger.info(f"      • Low amounts capped to ₹{MIN_REALISTIC_TRANSACTION:,}: {capped_low:,}")
+            logger.info(f"      • Total transactions capped: {total_capped:,} ({(total_capped/len(df)*100):.2f}%)")
+            
+            # Show new amount statistics
+            new_valid_amounts = df["amount"].dropna()
+            logger.info(f"   📊 Post-capping amount statistics:")
+            logger.info(f"      • New Min: ₹{new_valid_amounts.min():,.2f}")
+            logger.info(f"      • New Max: ₹{new_valid_amounts.max():,.2f}")
+            logger.info(f"      • New Mean: ₹{new_valid_amounts.mean():,.2f}")
+            logger.info(f"      • New Median: ₹{new_valid_amounts.median():,.2f}")
+        else:
+            logger.warning("   ⚠️  No valid amounts found for capping analysis")
+            df["amount_capped_high"] = 0
+            df["amount_capped_low"] = 0
+            df["amount_capped"] = 0
+        
         # Handle missing amounts with intelligent imputation
         if conversion_failures > 0:
             logger.info(f"\n🎯 Step 3: Intelligent Amount Imputation")
@@ -492,15 +546,6 @@ class AdvancedDataPreprocessor:
                                        (pd.to_numeric(df["amount_original"], errors="coerce") <= 0)).astype(int)
         else:
             df["amount_was_invalid"] = 0
-        
-        # Final amount statistics
-        if len(df) > 0:
-            logger.info(f"\n📊 Amount Processing Summary:")
-            logger.info(f"   • Successfully processed: {conversion_success:,} amounts")
-            logger.info(f"   • Amount range: ₹{df['amount'].min():.2f} to ₹{df['amount'].max():,.2f}")
-            logger.info(f"   • Average amount: ₹{df['amount'].mean():,.2f}")
-            logger.info(f"   • Median amount: ₹{df['amount'].median():,.2f}")
-            logger.info(f"   • Total transaction value: ₹{df['amount'].sum():,.2f}")
         
         # Clean up temporary columns
         df.drop(['amount_cleaned'], axis=1, inplace=True, errors='ignore')
@@ -682,9 +727,45 @@ class AdvancedDataPreprocessor:
         
         return df
 
+    def detect_outliers_iqr(self, series: pd.Series) -> pd.Series:
+        """Detect outliers using IQR method"""
+        Q1 = series.quantile(0.25)
+        Q3 = series.quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        return (series < lower_bound) | (series > upper_bound)
+
+    def detect_outliers_zscore(self, series: pd.Series, threshold: float = 3) -> pd.Series:
+        """Detect outliers using Z-score method"""
+        try:
+            from scipy import stats
+            z_scores = np.abs(stats.zscore(series.dropna()))
+            # Create a boolean series with same index as original
+            outliers = pd.Series(False, index=series.index)
+            outliers.loc[series.dropna().index] = z_scores > threshold
+            return outliers
+        except Exception:
+            # Fallback to manual z-score calculation
+            mean_val = series.mean()
+            std_val = series.std()
+            if std_val == 0:
+                return pd.Series(False, index=series.index)
+            z_scores = np.abs((series - mean_val) / std_val)
+            return z_scores > threshold
+
+    def detect_outliers_modified_zscore(self, series: pd.Series, threshold: float = 3.5) -> pd.Series:
+        """Detect outliers using Modified Z-score method"""
+        median = series.median()
+        mad = (series - median).abs().median()
+        if mad == 0:
+            return pd.Series(False, index=series.index)
+        modified_z_scores = 0.6745 * (series - median) / mad
+        return np.abs(modified_z_scores) > threshold
+
     def detect_and_handle_outliers(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Detect and handle outliers in amount data using statistical methods.
+        🔍 Advanced Outlier Detection & Treatment using multiple methods.
         
         Args:
             df: DataFrame with amount data
@@ -692,117 +773,84 @@ class AdvancedDataPreprocessor:
         Returns:
             DataFrame with outliers handled
         """
-        logger.info("📈 Advanced Outlier Detection & Handling...")
+        logger.info("🔍 Advanced Outlier Detection & Treatment...")
         logger.info("=" * 50)
         
         if 'amount' not in df.columns:
             logger.warning("⚠️  No 'amount' column found for outlier detection")
             return df
         
-        outlier_method = self.config['preprocessing']['outlier_method']
-        outlier_factor = self.config['preprocessing']['outlier_factor']
+        # Multiple outlier detection methods
+        logger.info("\n🎯 Step 1: Multi-Method Outlier Detection")
+        amount_series = df["amount"]
         
-        logger.info(f"\n🎯 Step 1: Outlier Detection using {outlier_method.upper()} method")
+        outliers_iqr = self.detect_outliers_iqr(amount_series)
+        outliers_zscore = self.detect_outliers_zscore(amount_series)
+        outliers_modified_zscore = self.detect_outliers_modified_zscore(amount_series)
         
-        initial_count = len(df)
+        logger.info(f"   📊 Outlier detection results:")
+        logger.info(f"      • IQR method: {outliers_iqr.sum():,} outliers ({outliers_iqr.sum()/len(df)*100:.2f}%)")
+        logger.info(f"      • Z-score method: {outliers_zscore.sum():,} outliers ({outliers_zscore.sum()/len(df)*100:.2f}%)")
+        logger.info(f"      • Modified Z-score: {outliers_modified_zscore.sum():,} outliers ({outliers_modified_zscore.sum()/len(df)*100:.2f}%)")
         
-        lower_bound = None
-        upper_bound = None
+        # Consensus outlier detection
+        consensus_outliers = (outliers_iqr.astype(int) + outliers_zscore.astype(int) + 
+                             outliers_modified_zscore.astype(int)) >= 2
+        logger.info(f"      • Consensus outliers: {consensus_outliers.sum():,} outliers ({consensus_outliers.sum()/len(df)*100:.2f}%)")
         
-        if outlier_method == 'iqr':
-            # IQR Method
-            Q1 = df['amount'].quantile(0.25)
-            Q3 = df['amount'].quantile(0.75)
-            IQR = Q3 - Q1
+        # Outlier treatment
+        logger.info("\n🎯 Step 2: Outlier Treatment Strategy")
+        if consensus_outliers.sum() > 0:
+            outlier_amounts = df.loc[consensus_outliers, "amount"]
+            logger.info(f"   💰 Outlier amount statistics:")
+            logger.info(f"      • Min outlier: ₹{outlier_amounts.min():,.2f}")
+            logger.info(f"      • Max outlier: ₹{outlier_amounts.max():,.2f}")
+            logger.info(f"      • Mean outlier: ₹{outlier_amounts.mean():,.2f}")
             
-            lower_bound = Q1 - outlier_factor * IQR
-            upper_bound = Q3 + outlier_factor * IQR
+            # Cap extreme outliers at 99.5th percentile
+            cap_value = df["amount"].quantile(0.995)
+            extreme_outliers = df["amount"] > cap_value
             
-            logger.info(f"   • Q1: ₹{Q1:,.2f}")
-            logger.info(f"   • Q3: ₹{Q3:,.2f}")
-            logger.info(f"   • IQR: ₹{IQR:,.2f}")
-            logger.info(f"   • Lower bound: ₹{lower_bound:,.2f}")
-            logger.info(f"   • Upper bound: ₹{upper_bound:,.2f}")
-            
-            # Identify outliers
-            outliers_mask = (df['amount'] < lower_bound) | (df['amount'] > upper_bound)
-            
-        elif outlier_method == 'zscore':
-            # Z-Score Method
-            try:
-                z_scores = np.abs(stats.zscore(df['amount'].values))
-                threshold = outlier_factor  # typically 2 or 3
-                
-                logger.info(f"   • Z-score threshold: {threshold}")
-                logger.info(f"   • Mean amount: ₹{df['amount'].mean():,.2f}")
-                logger.info(f"   • Std deviation: ₹{df['amount'].std():,.2f}")
-                
-                # Identify outliers
-                outliers_mask = z_scores > threshold
-            except Exception as e:
-                logger.warning(f"   ⚠️  Z-score calculation failed: {e}. Falling back to IQR method.")
-                # Fallback to IQR
-                Q1 = df['amount'].quantile(0.25)
-                Q3 = df['amount'].quantile(0.75)
-                IQR = Q3 - Q1
-                lower_bound = Q1 - outlier_factor * IQR
-                upper_bound = Q3 + outlier_factor * IQR
-                outliers_mask = (df['amount'] < lower_bound) | (df['amount'] > upper_bound)
-            
-        else:
-            logger.warning(f"   ⚠️  Unknown outlier method: {outlier_method}. Using IQR method.")
-            # Fallback to IQR
-            Q1 = df['amount'].quantile(0.25)
-            Q3 = df['amount'].quantile(0.75)
-            IQR = Q3 - Q1
-            lower_bound = Q1 - outlier_factor * IQR
-            upper_bound = Q3 + outlier_factor * IQR
-            outliers_mask = (df['amount'] < lower_bound) | (df['amount'] > upper_bound)
+            if extreme_outliers.sum() > 0:
+                df.loc[extreme_outliers, "amount"] = cap_value
+                logger.info(f"   ✅ Capped {extreme_outliers.sum():,} extreme outliers at ₹{cap_value:,.2f}")
         
-        outlier_count = outliers_mask.sum()
-        outlier_percentage = (outlier_count / len(df)) * 100
+        # Add outlier flags for analysis
+        df["is_outlier_amount"] = consensus_outliers.astype(int)
+        df["outlier_method_count"] = (outliers_iqr.astype(int) + outliers_zscore.astype(int) + 
+                                      outliers_modified_zscore.astype(int))
         
-        logger.info(f"\n🎯 Step 2: Outlier Analysis")
-        logger.info(f"   • Total outliers detected: {outlier_count:,} ({outlier_percentage:.2f}%)")
+        # Outlier analysis for other numeric columns
+        logger.info("\n🎯 Step 3: Extended Outlier Analysis")
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        outlier_summary = {}
         
-        if outlier_count > 0:
-            # Analyze outliers
-            outlier_amounts = df[outliers_mask]['amount']
-            logger.info(f"   • Outlier amount range: ₹{outlier_amounts.min():,.2f} to ₹{outlier_amounts.max():,.2f}")
-            logger.info(f"   • Average outlier amount: ₹{outlier_amounts.mean():,.2f}")
-            
-            # Flag outliers instead of removing them
-            df['is_outlier'] = outliers_mask.astype(int)
-            
-            # Option to cap outliers instead of removing
-            if outlier_percentage > 10:  # If too many outliers, cap them
-                logger.info(f"   • Capping outliers (>10% of data)")
-                if upper_bound is not None and lower_bound is not None:
-                    df.loc[df['amount'] > upper_bound, 'amount'] = upper_bound
-                    df.loc[df['amount'] < lower_bound, 'amount'] = lower_bound
-                    logger.info(f"   • Outliers capped to bounds: ₹{lower_bound:,.2f} - ₹{upper_bound:,.2f}")
-                else:
-                    logger.warning(f"   ⚠️  Cannot cap outliers - bounds not defined")
-            else:
-                # Remove extreme outliers
-                logger.info(f"   • Removing extreme outliers")
-                df = df[~outliers_mask]
-                
-                removed_count = initial_count - len(df)
-                logger.info(f"   • Removed {removed_count:,} outlier records")
-        else:
-            logger.info("   ✅ No outliers detected")
-            df['is_outlier'] = 0
+        for col in numeric_columns:
+            if col not in ["amount", "is_outlier_amount", "outlier_method_count", "amount_imputed", "amount_was_invalid"]:
+                if df[col].notna().sum() > 10:  # Only analyze columns with sufficient data
+                    col_outliers = self.detect_outliers_iqr(df[col].dropna())
+                    outlier_summary[col] = {
+                        "count": col_outliers.sum(),
+                        "percentage": (col_outliers.sum() / len(df[col].dropna())) * 100
+                    }
+        
+        if outlier_summary:
+            logger.info("   📊 Outlier summary for numeric columns:")
+            for col, stats in outlier_summary.items():
+                logger.info(f"      • {col}: {stats['count']:,} outliers ({stats['percentage']:.2f}%)")
         
         # Final statistics
+        initial_count = len(df)
         logger.info(f"\n📊 Outlier Handling Summary:")
-        logger.info(f"   • Initial records: {initial_count:,}")
-        logger.info(f"   • Final records: {len(df):,}")
-        logger.info(f"   • Data retention: {(len(df)/initial_count)*100:.2f}%")
+        logger.info(f"   • Total records: {initial_count:,}")
+        logger.info(f"   • Consensus outliers flagged: {consensus_outliers.sum():,}")
+        logger.info(f"   • Extreme outliers capped: {extreme_outliers.sum() if 'extreme_outliers' in locals() else 0:,}")
         
         if len(df) > 0:
             logger.info(f"   • Final amount range: ₹{df['amount'].min():,.2f} to ₹{df['amount'].max():,.2f}")
             logger.info(f"   • Final average amount: ₹{df['amount'].mean():,.2f}")
+        
+        logger.info("\n✅ Advanced outlier detection completed!")
         
         return df
 
@@ -918,6 +966,28 @@ class AdvancedDataPreprocessor:
         
         # Sort by date
         pivot_data = pivot_data.sort_values('date')
+        
+        # CRITICAL FIX: Daily Aggregation Outlier Detection & Treatment
+        logger.info(f"\n🎯 Daily Aggregation Outlier Detection & Treatment")
+        
+        # Analyze daily totals before treatment
+        daily_totals = pivot_data['total_daily_expense']
+        logger.info(f"   📊 Daily expense analysis before treatment:")
+        logger.info(f"      • Mean daily expense: ₹{daily_totals.mean():,.2f}")
+        logger.info(f"      • Median daily expense: ₹{daily_totals.median():,.2f}")
+        logger.info(f"      • 95th percentile: ₹{daily_totals.quantile(0.95):,.2f}")
+        logger.info(f"      • Max daily expense: ₹{daily_totals.max():,.2f}")
+        
+        # REMOVED: Daily expense capping to preserve natural expense patterns
+        # This allows the dashboard to show realistic variations instead of artificial ₹50k ceiling
+        logger.info(f"   ✅ Preserving natural daily expense patterns (no artificial capping)")
+        logger.info(f"      • Max daily expense: ₹{pivot_data['total_daily_expense'].max():,.2f}")
+        logger.info(f"      • Mean daily expense: ₹{pivot_data['total_daily_expense'].mean():,.2f}")
+        logger.info(f"      • 95th percentile: ₹{pivot_data['total_daily_expense'].quantile(0.95):,.2f}")
+        
+        # Add tracking columns for consistency (but no capping applied)
+        pivot_data['daily_expense_capped'] = 0
+        pivot_data['original_daily_expense'] = pivot_data['total_daily_expense']
         
         logger.info(f"✅ Time series data prepared:")
         logger.info(f"   • Date range: {pivot_data['date'].min().strftime('%Y-%m-%d')} to {pivot_data['date'].max().strftime('%Y-%m-%d')}")

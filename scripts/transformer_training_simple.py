@@ -304,16 +304,31 @@ class TransformerModelsTraining:
         rmse = np.sqrt(mean_squared_error(y_true, y_pred))
         mape = np.mean(np.abs((y_true - y_pred) / (y_true + 1e-8))) * 100
         
+        # R² Score
+        ss_res = np.sum((y_true - y_pred) ** 2)
+        ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+        r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+        
+        # Directional Accuracy
+        if len(y_true) > 1:
+            true_direction = np.diff(y_true.flatten()) > 0
+            pred_direction = np.diff(y_pred.flatten()) > 0
+            directional_accuracy = np.mean(true_direction == pred_direction) * 100
+        else:
+            directional_accuracy = 0
+        
         # Store results
         self.results['NBEATS'] = {
             'val_mae': mae,
             'val_rmse': rmse,
             'val_mape': mape,
+            'val_r2': r2,
+            'val_directional_accuracy': directional_accuracy,
             'epochs_trained': epoch + 1,
             'convergence': 'Good' if epoch < 50 else 'Slow'
         }
         
-        logger.info(f"N-BEATS - Val MAE: {mae:.2f}, Val RMSE: {rmse:.2f}, Val MAPE: {mape:.2f}%")
+        logger.info(f"N-BEATS - Val MAE: {mae:.2f}, Val RMSE: {rmse:.2f}, Val MAPE: {mape:.2f}%, Val R²: {r2:.3f}, Dir.Acc: {directional_accuracy:.1f}%")
     
     def save_results(self):
         """Save training results"""

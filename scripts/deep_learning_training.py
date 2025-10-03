@@ -290,10 +290,36 @@ class DeepLearningModelsTraining:
         train_rmse = np.sqrt(mean_squared_error(y_train, y_pred_train))
         train_mape = mean_absolute_percentage_error(y_train, y_pred_train) * 100
         
+        # Training R² Score
+        train_ss_res = np.sum((y_train - y_pred_train) ** 2)
+        train_ss_tot = np.sum((y_train - np.mean(y_train)) ** 2)
+        train_r2 = 1 - (train_ss_res / train_ss_tot) if train_ss_tot != 0 else 0
+        
+        # Training Directional Accuracy
+        if len(y_train) > 1:
+            train_true_direction = np.diff(y_train) > 0
+            train_pred_direction = np.diff(y_pred_train) > 0
+            train_directional_accuracy = np.mean(train_true_direction == train_pred_direction) * 100
+        else:
+            train_directional_accuracy = 0
+        
         # Validation metrics
         val_mae = mean_absolute_error(y_val, y_pred_val)
         val_rmse = np.sqrt(mean_squared_error(y_val, y_pred_val))
         val_mape = mean_absolute_percentage_error(y_val, y_pred_val) * 100
+        
+        # Validation R² Score
+        val_ss_res = np.sum((y_val - y_pred_val) ** 2)
+        val_ss_tot = np.sum((y_val - np.mean(y_val)) ** 2)
+        val_r2 = 1 - (val_ss_res / val_ss_tot) if val_ss_tot != 0 else 0
+        
+        # Validation Directional Accuracy
+        if len(y_val) > 1:
+            val_true_direction = np.diff(y_val) > 0
+            val_pred_direction = np.diff(y_pred_val) > 0
+            val_directional_accuracy = np.mean(val_true_direction == val_pred_direction) * 100
+        else:
+            val_directional_accuracy = 0
         
         # Training history
         min_val_loss = min(history.history['val_loss'])
@@ -304,15 +330,19 @@ class DeepLearningModelsTraining:
             'train_mae': train_mae,
             'train_rmse': train_rmse,
             'train_mape': train_mape,
+            'train_r2': train_r2,
+            'train_directional_accuracy': train_directional_accuracy,
             'val_mae': val_mae,
             'val_rmse': val_rmse,
             'val_mape': val_mape,
+            'val_r2': val_r2,
+            'val_directional_accuracy': val_directional_accuracy,
             'min_val_loss': min_val_loss,
             'epochs_trained': epochs_trained,
             'convergence': 'Good' if epochs_trained < 80 else 'Slow'
         }
         
-        logger.info(f"{model_name} - Val MAE: {val_mae:.2f}, Val RMSE: {val_rmse:.2f}, Val MAPE: {val_mape:.2f}%")
+        logger.info(f"{model_name} - Val MAE: {val_mae:.2f}, Val RMSE: {val_rmse:.2f}, Val MAPE: {val_mape:.2f}%, Val R²: {val_r2:.3f}, Dir.Acc: {val_directional_accuracy:.1f}%")
         return results
     
     def save_results(self, results: List[Dict[str, Any]]):

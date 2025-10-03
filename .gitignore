@@ -59,12 +59,22 @@ htmlcov/
 .env.local
 .env.production
 
+# Logs directory
+logs/*.log
+
 # Temporary files
 *.tmp
 *.temp
+temp/*.csv
+temp/*.json
 
-# Include sample data for cloud deployment
-!sample_expense_data.csv
+# Utils directory output
+utils/*.csv
+utils/*.json
+utils/*.png
+
+# Include sample data for cloud deployment (moved to temp)
+!temp/sample_expense_data.csv
 
 # Include Streamlit config for cloud deployment
 !.streamlit/config.toml
