@@ -83,15 +83,15 @@ def create_copyright_notice() -> str:
     return f"""
     ╔══════════════════════════════════════════════════════════════╗
     ║                    BudgetWise AI                             ║
-    ║              Personal Expense Forecasting Tool              ║
+    ║              Personal Expense Forecasting Tool               ║
     ║                                                              ║
-    ║  Copyright © {COPYRIGHT_YEAR} Mohammed Arfath                        ║
+    ║  Copyright © {COPYRIGHT_YEAR} Mohammed Arfath                            ║
     ║  Original Repository:                                        ║
     ║  github.com/Mohammed0Arfath/BudgetWise-AI-based-Expense-     ║
     ║  Forecasting-Tool                                            ║
     ║                                                              ║
-    ║  Licensed under MIT License with Attribution Requirement    ║
-    ║  Project Signature: {PROJECT_SIGNATURE}                    ║
+    ║  Licensed under MIT License with Attribution Requirement     ║
+    ║  Project Signature: {PROJECT_SIGNATURE}                       ║ 
     ╚══════════════════════════════════════════════════════════════╝
     """
 

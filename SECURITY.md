@@ -30,7 +30,7 @@ Unauthorized copying, modification, or distribution without proper attribution i
 ### Reporting Copyright Violations
 If you discover unauthorized copies of this project without proper attribution:
 
-**Email**: mohammed.arfath.violations@gmail.com  
+**Email**: mohammedarfath02003@gmail.com  
 **Subject**: Copyright Violation Report - BudgetWise AI  
 **Include**:
 - URL of the infringing repository/website
