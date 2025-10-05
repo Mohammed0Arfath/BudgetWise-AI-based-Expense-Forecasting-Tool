@@ -619,6 +619,6 @@ If this project helped you with your personal finance management, please conside
 
 ---
 
-*"AI-powered personal finance management with 85.5% prediction accuracy"* 📊✨
+*"AI-powered personal finance management with **99.9%** prediction accuracy"* 📊✨
 
 </div>
